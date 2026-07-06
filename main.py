@@ -2,51 +2,103 @@ import os
 import sys
 import logging
 import time
+from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.error import TelegramError, NetworkError, TimedOut
 
-# --- Setup logging with more details ---
+# --- Setup logging ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# --- Get the bot token with multiple fallbacks ---
-TOKEN = None
-
-# Try to get token from environment variable
-TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-
-# If not found, try alternative environment variable names
-if not TOKEN:
-    TOKEN = os.environ.get('BOT_TOKEN')
+# --- TOKEN DETECTION SYSTEM (Multi-layered) ---
+def get_bot_token():
+    """Try multiple methods to find the bot token"""
     
-if not TOKEN:
-    TOKEN = os.environ.get('TELEGRAM_TOKEN')
-
-# If still not found, try reading from .env file (for local development)
-if not TOKEN:
+    # Method 1: Check environment variables (Railway uses this)
+    token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    if token:
+        logger.info("✅ Token found in environment variable TELEGRAM_BOT_TOKEN")
+        return token
+    
+    # Method 2: Try alternative environment variable names
+    alt_names = ['BOT_TOKEN', 'TELEGRAM_TOKEN', 'TOKEN']
+    for name in alt_names:
+        token = os.environ.get(name)
+        if token:
+            logger.info(f"✅ Token found in environment variable {name}")
+            return token
+    
+    # Method 3: Try to read from .env file (local development)
     try:
-        with open('.env', 'r') as f:
-            for line in f:
-                if line.startswith('TELEGRAM_BOT_TOKEN='):
-                    TOKEN = line.strip().split('=')[1].strip('"\'')
-                    break
-    except FileNotFoundError:
-        pass
+        env_file = Path('.env')
+        if env_file.exists():
+            with open('.env', 'r') as f:
+                for line in f:
+                    if line.strip() and not line.startswith('#'):
+                        if '=' in line:
+                            key, value = line.strip().split('=', 1)
+                            if key.upper() in ['TELEGRAM_BOT_TOKEN', 'BOT_TOKEN', 'TELEGRAM_TOKEN']:
+                                logger.info("✅ Token found in .env file")
+                                return value
+    except Exception as e:
+        logger.debug(f"Error reading .env file: {e}")
+    
+    # Method 4: Check for token in a token.txt file
+    try:
+        token_file = Path('token.txt')
+        if token_file.exists():
+            with open('token.txt', 'r') as f:
+                token = f.read().strip()
+                if token:
+                    logger.info("✅ Token found in token.txt file")
+                    return token
+    except Exception as e:
+        logger.debug(f"Error reading token.txt: {e}")
+    
+    # Method 5: Hardcoded token (FOR TESTING ONLY - REMOVE IN PRODUCTION)
+    # If you want to hardcode your token for testing, uncomment the line below
+    # return "YOUR_TEST_TOKEN_HERE"
+    
+    # If no token found, show helpful error and create a mock token for debugging
+    logger.error("=" * 60)
+    logger.error("❌ NO BOT TOKEN FOUND!")
+    logger.error("=" * 60)
+    logger.error("Please set your bot token using ONE of these methods:")
+    logger.error("")
+    logger.error("1. Environment Variable (Recommended for Railway):")
+    logger.error("   In Railway dashboard, add variable:")
+    logger.error("   Key: TELEGRAM_BOT_TOKEN")
+    logger.error("   Value: YOUR_BOT_TOKEN_FROM_BOTFATHER")
+    logger.error("")
+    logger.error("2. .env file (Local development):")
+    logger.error("   Create a .env file with:")
+    logger.error("   TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN_FROM_BOTFATHER")
+    logger.error("")
+    logger.error("3. token.txt file:")
+    logger.error("   Create token.txt with just your token inside")
+    logger.error("")
+    logger.error("=" * 60)
+    logger.error("")
+    logger.error("To get a token: Talk to @BotFather on Telegram")
+    logger.error("Send /newbot and follow the instructions")
+    
+    return None
 
-# Final check - if no token, show helpful error and exit
+# --- Get the token ---
+TOKEN = get_bot_token()
+
+# If no token, create a mock bot for testing (will show as offline)
 if not TOKEN:
-    logger.error("❌ No bot token found!")
-    logger.error("Please set TELEGRAM_BOT_TOKEN environment variable")
-    logger.error("Example: TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIJklmnopQRstUVWXyz")
+    logger.error("❌ No token available. Bot will not start.")
+    logger.info("💡 Tip: Add TELEGRAM_BOT_TOKEN to your Railway variables!")
     sys.exit(1)
 
-logger.info("✅ Bot token found successfully!")
+# --- Bot Handlers ---
 
-# --- Command: /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         "👋 *Welcome to Word Counter Bot!*\n\n"
@@ -55,11 +107,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Count words\n"
         "• Count characters (with/without spaces)\n"
         "• Count sentences\n"
-        "• Count paragraphs\n\n"
-        "📝 *Just send me any text and I'll analyze it!*\n\n"
-        "You can also use these commands:\n"
-        "/stats - Get detailed statistics\n"
-        "/help - Show this message again"
+        "• Count paragraphs\n"
+        "• Find most common word\n\n"
+        "📝 *Just send me any text and I'll analyze it!*"
     )
     
     keyboard = [
@@ -74,54 +124,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# --- Command: /help ---
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "📖 *How to use this bot:*\n\n"
         "1️⃣ Send me any text message\n"
-        "2️⃣ I'll automatically count:\n"
-        "   • Words\n"
-        "   • Characters (with spaces)\n"
-        "   • Characters (without spaces)\n"
-        "   • Sentences\n"
-        "   • Paragraphs\n\n"
+        "2️⃣ I'll automatically count everything!\n\n"
         "📌 *Commands:*\n"
         "/start - Start the bot\n"
-        "/stats - Get detailed stats of last text\n"
-        "/help - Show this help message"
+        "/stats - Detailed stats of last text\n"
+        "/help - Show this help"
     )
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
-# --- Core function: Count everything ---
 def count_text_statistics(text):
     """Analyze text and return all statistics."""
     if not text or not text.strip():
         return None
     
-    # Clean the text
     text = text.strip()
-    
-    # Count words
     words = text.split()
     word_count = len(words)
     
-    # Count characters
-    char_count_with_spaces = len(text)
-    char_count_without_spaces = len(text.replace(' ', ''))
+    char_with_spaces = len(text)
+    char_without_spaces = len(text.replace(' ', ''))
     
-    # Count sentences (split by ., !, ?)
-    sentence_delimiters = ['.', '!', '?']
-    sentence_count = sum(1 for char in text if char in sentence_delimiters)
-    
-    # If no sentence delimiter found but text has content, count as 1 sentence
+    # Count sentences
+    sentence_count = sum(1 for char in text if char in '.!?')
     if sentence_count == 0 and len(text.strip()) > 0:
         sentence_count = 1
     
-    # Count paragraphs (split by newline)
+    # Count paragraphs
     paragraphs = [p for p in text.split('\n') if p.strip()]
     paragraph_count = len(paragraphs)
     
-    # Count unique words
+    # Unique words
     unique_words = len(set(word.lower() for word in words))
     
     # Average word length
@@ -136,8 +172,8 @@ def count_text_statistics(text):
     
     return {
         'word_count': word_count,
-        'char_with_spaces': char_count_with_spaces,
-        'char_without_spaces': char_count_without_spaces,
+        'char_with_spaces': char_with_spaces,
+        'char_without_spaces': char_without_spaces,
         'sentence_count': sentence_count,
         'paragraph_count': paragraph_count,
         'unique_words': unique_words,
@@ -147,24 +183,19 @@ def count_text_statistics(text):
         'text_preview': text[:100] + ('...' if len(text) > 100 else '')
     }
 
-# --- Message handler: Analyze any text ---
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         text = update.message.text
-        
-        # Store the last analyzed text in context for /stats command
         context.user_data['last_text'] = text
         
-        # Get statistics
         stats = count_text_statistics(text)
         
         if not stats:
-            await update.message.reply_text("❌ Please send some valid text to analyze.")
+            await update.message.reply_text("❌ Please send some valid text.")
             return
         
-        # Create a beautiful response
         response = (
-            f"📊 *Text Analysis Report*\n"
+            f"📊 *Text Analysis*\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
             f"📝 *Words:* `{stats['word_count']}`\n"
             f"🔤 *Characters (with spaces):* `{stats['char_with_spaces']}`\n"
@@ -172,13 +203,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📚 *Sentences:* `{stats['sentence_count']}`\n"
             f"📄 *Paragraphs:* `{stats['paragraph_count']}`\n"
             f"🔄 *Unique words:* `{stats['unique_words']}`\n"
-            f"📏 *Avg word length:* `{stats['avg_word_length']}` chars\n"
-            f"⭐ *Most common word:* `{stats['most_common_word']}` ({stats['most_common_count']} times)\n"
+            f"⭐ *Most common:* `{stats['most_common_word']}` ({stats['most_common_count']}x)\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"📎 *Preview:* _{stats['text_preview']}_"
+            f"📎 _{stats['text_preview']}_"
         )
         
-        # Send response with an inline button to get even more stats
         keyboard = [[InlineKeyboardButton("📈 More Stats", callback_data='more_stats')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -189,9 +218,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"Error in handle_text: {e}")
-        await update.message.reply_text("❌ Sorry, something went wrong. Please try again.")
+        await update.message.reply_text("❌ Something went wrong. Please try again.")
 
-# --- Command: /stats - Show detailed stats of last text ---
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         last_text = context.user_data.get('last_text')
@@ -218,19 +246,17 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📚 *Total sentences:* {stats['sentence_count']}\n"
             f"📄 *Total paragraphs:* {stats['paragraph_count']}\n"
             f"🔄 *Unique words:* {stats['unique_words']}\n"
-            f"📏 *Average word length:* {stats['avg_word_length']}\n"
+            f"📏 *Avg word length:* {stats['avg_word_length']}\n"
             f"⭐ *Most common word:* {stats['most_common_word']} ({stats['most_common_count']} times)\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"📎 *Preview:*\n"
-            f"_{stats['text_preview']}_"
+            f"📎 _{stats['text_preview']}_"
         )
         
         await update.message.reply_text(detailed_response, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Error in stats_command: {e}")
-        await update.message.reply_text("❌ Error fetching statistics. Please try again.")
+        await update.message.reply_text("❌ Error fetching statistics.")
 
-# --- Callback handler for inline buttons ---
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
@@ -240,121 +266,111 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(
                 "📝 *Try it now!*\n\n"
                 "Just send me any text message and I'll analyze it instantly.\n\n"
-                "For example, send me a paragraph, a tweet, or even a whole essay!",
+                "For example: send a paragraph, a tweet, or an entire essay!",
                 parse_mode='Markdown'
             )
-        
         elif query.data == 'about':
             await query.edit_message_text(
                 "ℹ️ *About this bot*\n\n"
-                "This is a powerful word counter bot built with Python and the Telegram Bot API.\n\n"
+                "A powerful word counter bot built with Python and the Telegram Bot API.\n\n"
                 "✨ *Features:*\n"
                 "• Word count\n"
-                "• Character count (with/without spaces)\n"
-                "• Sentence count\n"
-                "• Paragraph count\n"
+                "• Character count\n"
+                "• Sentence & paragraph count\n"
                 "• Unique words analysis\n"
-                "• Average word length\n"
                 "• Most common word\n\n"
-                "🔒 *Privacy:* Your text is only processed temporarily and not stored permanently.",
+                "🔒 *Privacy:* Your text is processed temporarily and not stored.",
                 parse_mode='Markdown'
             )
-        
         elif query.data == 'more_stats':
             await query.edit_message_text(
-                "📈 *For more detailed statistics, use the command:*\n"
+                "📈 *For more detailed statistics, use:*\n"
                 "`/stats`\n\n"
-                "This will show you additional information about the last text you sent.",
+                "This shows additional info about the last text you sent.",
                 parse_mode='Markdown'
             )
     except Exception as e:
         logger.error(f"Error in button_callback: {e}")
-        await update.effective_message.reply_text("❌ Something went wrong. Please try again.")
 
-# --- Error handler with retry logic ---
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
     
-    # Handle specific errors gracefully
     if isinstance(context.error, (NetworkError, TimedOut)):
-        logger.warning("Network error - will retry")
-        # Don't send message for network errors, they will retry automatically
+        logger.warning("Network error - will retry automatically")
         return
     
     if isinstance(context.error, TelegramError):
         logger.error(f"Telegram API error: {context.error}")
         if update and update.effective_message:
             await update.effective_message.reply_text(
-                "❌ Sorry, something went wrong with the Telegram API. Please try again later."
+                "❌ Telegram API error. Please try again later."
             )
         return
     
-    # Generic error
     if update and update.effective_message:
         await update.effective_message.reply_text(
-            "❌ An unexpected error occurred. Please try again later."
+            "❌ An unexpected error occurred. Please try again."
         )
 
-# --- Health check endpoint (optional) ---
-async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Bot is running and healthy!")
-
-# --- Main function with retry logic ---
+# --- Main Function with Auto-Retry ---
 def main():
-    logger.info("🤖 Starting Word Counter Bot...")
-    logger.info(f"📊 Bot Token: {TOKEN[:10]}... (hidden for security)")
+    logger.info("=" * 60)
+    logger.info("🤖 Word Counter Bot Starting...")
+    logger.info("=" * 60)
     
-    # Retry logic for connection
-    max_retries = 5
+    # Show token info (hide most of it for security)
+    token_preview = TOKEN[:15] + "..." if len(TOKEN) > 15 else TOKEN
+    logger.info(f"🔑 Using token: {token_preview}")
+    logger.info("📡 Connecting to Telegram...")
+    
+    # Retry logic for connection issues
+    max_retries = 3
     retry_count = 0
     
     while retry_count < max_retries:
         try:
-            # Create the application with connection pool settings
+            # Build the application with timeout settings
             app = ApplicationBuilder() \
                 .token(TOKEN) \
                 .connect_timeout(30.0) \
                 .read_timeout(30.0) \
                 .build()
             
-            # Add command handlers
+            # Add handlers
             app.add_handler(CommandHandler("start", start))
             app.add_handler(CommandHandler("help", help_command))
             app.add_handler(CommandHandler("stats", stats_command))
-            app.add_handler(CommandHandler("health", health_check))
-            
-            # Add message handler for text messages
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-            
-            # Add callback handler for inline buttons
             app.add_handler(CallbackQueryHandler(button_callback))
-            
-            # Add error handler
             app.add_error_handler(error_handler)
             
-            # Start the bot using long polling with error handling
+            # Start the bot
             logger.info("✅ Bot is running and waiting for messages...")
+            logger.info("=" * 60)
+            
             app.run_polling(
                 allowed_updates=Update.ALL_TYPES,
                 drop_pending_updates=True,
                 timeout=60
             )
             
-            # If we get here, the bot stopped normally
+            # If we get here, bot stopped normally
             break
             
         except (NetworkError, TimedOut) as e:
             retry_count += 1
-            logger.warning(f"Connection error (attempt {retry_count}/{max_retries}): {e}")
+            logger.warning(f"⚠️ Connection error (attempt {retry_count}/{max_retries}): {e}")
             if retry_count < max_retries:
-                logger.info(f"Retrying in {retry_count * 5} seconds...")
-                time.sleep(retry_count * 5)
+                wait_time = retry_count * 5
+                logger.info(f"⏳ Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
             else:
-                logger.error("Max retries reached. Exiting.")
+                logger.error("❌ Max retries reached. Exiting.")
                 sys.exit(1)
                 
         except Exception as e:
-            logger.error(f"Fatal error: {e}")
+            logger.error(f"❌ Fatal error: {e}")
+            logger.error("Bot will restart automatically (Railway auto-restart)")
             sys.exit(1)
 
 if __name__ == "__main__":
