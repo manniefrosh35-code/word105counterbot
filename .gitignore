@@ -1,24 +1,9 @@
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-.venv
 .env
 *.env
-
-# IDE
+token.txt
+*.log
 .vscode/
 .idea/
-*.swp
-*.swo
-
-# Railway
 .DS_Store
-
-# Logs
-*.log
