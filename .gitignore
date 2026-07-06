@@ -8,6 +8,8 @@ env/
 venv/
 ENV/
 .venv
+.env
+*.env
 
 # IDE
 .vscode/
@@ -18,6 +20,5 @@ ENV/
 # Railway
 .DS_Store
 
-# Environment variables
-.env
-*.env
+# Logs
+*.log
